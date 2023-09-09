@@ -1,0 +1,377 @@
+from ESRGAN_master.HRTF.config import *
+from ESRGAN_master.HRTF.hrtfdata.transforms.hrirs import SphericalHarmonicsTransform
+from ESRGAN_master.HRTF.model.util import *
+import torch.nn as nn
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+from ESRGAN_master.train import *
+from ESRGAN_master.HRTF.evaluation.evaluation import *
+import torch.nn.functional as F
+from torch import autograd
+import gc
+# import GPyOpt
+# import GPy
+import torch.optim as optim
+
+path = "C:/PycharmProjects/Upsample_GAN/ESRGAN_master/models/model"
+GPU = True  # Choose whether to use GPU
+if GPU:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+else:
+    device = torch.device("cpu")
+print(f'Using {device}')
+import os
+
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+config = Config("ari-upscale-4", using_hpc=False)
+data_dir = config.raw_hrtf_dir / config.dataset
+imp = importlib.import_module('hrtfdata.full')
+load_function = getattr(imp, config.dataset)
+
+
+# #### Data loading
+
+# In[4]:
+# def make_layer(block, n_layers):
+#     layers = []
+#     for _ in range(n_layers):
+#         layers.append(block())
+#     return nn.Sequential(*layers)
+def make_layer(block, n_layers, **kwargs):
+    layers = []
+    for _ in range(n_layers):
+        layers.append(block(**kwargs))
+    return nn.Sequential(*layers)
+
+class SelfAttention(nn.Module):
+    def __init__(self, in_dim):
+        super(SelfAttention, self).__init__()
+        self.query_conv = nn.Conv1d(in_dim, in_dim//8, kernel_size=1)
+        self.key_conv = nn.Conv1d(in_dim, in_dim//8, kernel_size=1)
+        self.value_conv = nn.Conv1d(in_dim, in_dim, kernel_size=1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+
+    def forward(self, x):
+        B, C, W = x.size()
+        query = self.query_conv(x).view(B, -1, W).permute(0, 2, 1)
+        key = self.key_conv(x).view(B, -1, W)
+        attention = torch.bmm(query, key)
+        attention = F.tanh(attention) # dim=-1
+        # print(f"attention{attention.shape}")
+        value = self.value_conv(x).view(B, -1, W)
+        # print(value.shape)
+        out = torch.bmm(value, attention.permute(0, 2, 1))
+        out = out.view(B, C, W)
+        out = self.gamma*out + x
+        return out
+
+
+class ResidualDenseBlock_5C(nn.Module):
+    def __init__(self, nf=64, gc=32, bias=True):
+        super(ResidualDenseBlock_5C, self).__init__()
+        # gc: growth channel, i.e. intermediate channels
+        self.conv1 = nn.Conv1d(nf, gc, 3, 1, 1, bias=bias)
+        self.conv2 = nn.Conv1d(nf + gc, gc, 3, 1, 1, bias=bias)
+        self.conv3 = nn.Conv1d(nf + 2 * gc, gc, 3, 1, 1, bias=bias)
+        self.conv4 = nn.Conv1d(nf + 3 * gc, gc, 3, 1, 1, bias=bias)
+        self.conv5 = nn.Conv1d(nf + 4 * gc, nf, 3, 1, 1, bias=bias)
+        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
+
+        # initialization
+        # mutil.initialize_weights([self.conv1, self.conv2, self.conv3, self.conv4, self.conv5], 0.1)
+
+    # def forward(self, x):
+    #     x1 = self.lrelu(self.conv1(x))
+    #     x2 = self.lrelu(self.conv2(torch.cat((x, x1), 1)))
+    #     x3 = self.lrelu(self.conv3(torch.cat((x, x1, x2), 1)))
+    #     x4 = self.lrelu(self.conv4(torch.cat((x, x1, x2, x3), 1)))
+    #     x5 = self.conv5(torch.cat((x, x1, x2, x3, x4), 1))
+    #     return x5 * 0.2 + x
+    def forward(self, x):
+        x1 = F.tanh(self.conv1(x))
+        x2 = F.tanh(self.conv2(torch.cat((x, x1), 1)))
+        x3 = F.tanh(self.conv3(torch.cat((x, x1, x2), 1)))
+        x4 = F.tanh(self.conv4(torch.cat((x, x1, x2, x3), 1)))
+        x5 = self.conv5(torch.cat((x, x1, x2, x3, x4), 1))
+        return x5 * 0.2 + x
+
+
+class RRDB(nn.Module):
+    '''Residual in Residual Dense Block'''
+
+    def __init__(self, nf, gc=32):
+        super(RRDB, self).__init__()
+        self.RDB1 = ResidualDenseBlock_5C(nf, gc)
+        self.RDB2 = ResidualDenseBlock_5C(nf, gc)
+        self.RDB3 = ResidualDenseBlock_5C(nf, gc)
+        # self.RDB4 = ResidualDenseBlock_5C(nf, gc)
+        # self.RDB5 = ResidualDenseBlock_5C(nf, gc)
+        self.attention = SelfAttention(nf)
+
+    def forward(self, x):
+        out = self.RDB1(x)
+        out = self.RDB2(out)
+        out = self.RDB3(out)
+        # out = self.RDB4(out)
+        # out = self.RDB5(out)
+        out = self.attention(out)  # Apply self-attention here
+        return out * 0.2 + x
+
+class Upsample(nn.Module):
+    def __init__(self, scale_factor):
+        super(Upsample, self).__init__()
+        self.scale_factor = scale_factor
+
+    def forward(self, x):
+        return F.interpolate(x, scale_factor=self.scale_factor, mode='nearest')
+
+class Downsample(nn.Module):
+    def __init__(self, output_size):
+        super(Downsample, self).__init__()
+        self.output_size = output_size
+
+    def forward(self, x):
+        return x[:, :, :self.output_size]
+        # return F.adaptive_avg_pool1d(x, self.output_size)
+
+class RRDBNet(nn.Module):
+    def __init__(self, in_nc, out_nc, nf, nb, gc=32):
+        super(RRDBNet, self).__init__()
+        RRDB_block_f = functools.partial(RRDB, nf=nf, gc=gc)
+        self.dropout = nn.Dropout(0.5)
+
+        self.conv_first = nn.Conv1d(in_nc, nf, 3, 1, 1, bias=True)
+        # self.conv_first = nn.Conv1d(in_channels=1, out_channels=128, kernel_size=3, stride=1, padding=1)
+        self.RRDB_trunk1 = make_layer(RRDB_block_f, nb)
+        self.RRDB_trunk2 = make_layer(RRDB_block_f, nb)
+        self.RRDB_trunk3 = make_layer(RRDB_block_f, nb)
+        self.RRDB_trunk4 = make_layer(RRDB_block_f, nb)
+        self.RRDB_trunk5 = make_layer(RRDB_block_f, nb)
+        self.trunk_conv = nn.Conv1d(nf, nf, 3, 1, 1, bias=True)
+        #### upsampling
+        self.upconv1 = nn.Conv1d(nf, nf, 3, 1, 1, bias=True)
+        self.upconv2 = nn.Conv1d(nf, nf, 3, 1, 1, bias=True)
+        self.upconv3 = nn.Conv1d(nf, nf, 3, 1, 1, bias=True)
+        self.upconv4 = nn.Conv1d(nf, nf, 3, 1, 1, bias=True)
+        self.upconv5 = nn.Conv1d(nf, nf, 3, 1, 1, bias=True)
+        self.upconv6 = nn.Conv1d(nf, nf, 3, 1, 1, bias=True)
+        # self.upconv7 = nn.Conv1d(nf, nf, 3, 1, 1, bias=True)
+
+
+        self.HRconv = nn.Conv1d(nf, nf, 3, 1, 1, bias=True)
+        self.conv_last = nn.Conv1d(nf, nf, 3, 1, 1, bias=True)
+
+        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
+
+        # Upsampling and Downsampling layers
+        self.up = Upsample(scale_factor=3)  # 784*3 = 2352
+        self.down = Downsample(output_size=484)  # downsample to 841
+
+        self.conv = nn.Conv1d(nf, nf, 3, 1, 1)
+
+    # def forward(self, x):
+    #     fea = self.conv_first(x)
+    #     trunk = self.trunk_conv(self.RRDB_trunk(fea))
+    #     fea = fea + trunk
+    #
+    #     fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=2, mode='nearest')))
+    #     fea = self.dropout(fea)
+    #     fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=2, mode='nearest')))
+    #     fea = self.dropout(fea)
+    #     fea = self.lrelu(self.upconv3(F.interpolate(fea, scale_factor=2, mode='nearest')))
+    #     fea = self.dropout(fea)
+    #     fea = self.lrelu(self.upconv4(F.interpolate(fea, scale_factor=2, mode='nearest')))
+    #     fea = self.dropout(fea)
+    #     # out = self.conv_last(self.lrelu(self.HRconv(fea)))
+    #     out = self.conv_last(self.HRconv(fea))
+    #
+    #     # Apply Upsampling and Downsampling
+    #     out = self.up(out)
+    #     out = self.down(out)
+    #     out = self.conv(out)
+    #
+    #     return out
+    def forward(self, x):
+        fea = self.conv_first(x)
+        # print("f1: ", fea.shape)
+        trunk = self.trunk_conv(self.RRDB_trunk1(fea))
+        fea = fea + trunk
+        # print("f2: ", fea.shape)
+
+        fea = F.tanh(self.upconv1(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        trunk = self.trunk_conv(self.RRDB_trunk2(fea))
+        fea = fea + trunk
+        # print("f3: ", fea.shape)
+        fea = nn.Dropout(0.5)(fea)
+        fea = F.tanh(self.upconv2(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        trunk = self.trunk_conv(self.RRDB_trunk3(fea))
+        fea = fea + trunk
+        # print("f4: ", fea.shape)
+        fea = nn.Dropout(0.5)(fea)
+        fea = F.tanh(self.upconv3(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        trunk = self.trunk_conv(self.RRDB_trunk4(fea))
+        fea = fea + trunk
+        # print("f5: ", fea.shape)
+        fea = nn.Dropout(0.5)(fea)
+        # fea = F.tanh(self.upconv4(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        # trunk = self.trunk_conv(self.RRDB_trunk5(fea))
+        # fea = fea + trunk
+        # print("f6: ", fea.shape)
+        # fea = nn.Dropout(0.5)(fea)
+        # fea = F.tanh(self.upconv5(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        # print("f7: ", fea.shape)
+        # fea = nn.Dropout(0.5)(fea)
+        # fea = F.tanh(self.upconv6(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        # print("f8: ", fea.shape)
+        # fea = nn.Dropout(0.5)(fea)
+        # fea = F.tanh(self.upconv7(F.interpolate(fea, scale_factor=2, mode='nearest')))
+        # fea = nn.Dropout(0.5)(fea)
+        out = self.conv_last(fea)
+        # print("f9: ", out.shape)
+        # Apply Upsampling and Downsampling
+        out = self.up(out)
+        out = self.down(out)
+        out = self.conv(out)
+        # print(out.shape)
+        return out
+
+@ARCH_REGISTRY.register()
+class VGGStyleDiscriminator1D_v2(nn.Module):
+    def __init__(self, num_in_ch, num_feat, input_size=484):
+        super(VGGStyleDiscriminator1D_v2, self).__init__()
+        self.input_size = input_size
+        self.dropout = nn.Dropout(0.5)
+
+        self.conv0_0 = nn.Conv1d(num_in_ch, num_feat, 3, 1, 1, bias=True)
+        self.conv0_1 = nn.Conv1d(num_feat, num_feat, 3, 2, 1, bias=False)
+        self.bn0_1 = nn.BatchNorm1d(num_feat, affine=True)
+
+        self.conv1_0 = nn.Conv1d(num_feat, num_feat * 2, 3, 1, 1, bias=False)
+        self.bn1_0 = nn.BatchNorm1d(num_feat * 2, affine=True)
+        self.conv1_1 = nn.Conv1d(num_feat * 2, num_feat * 2, 3, 2, 1, bias=False)
+        self.bn1_1 = nn.BatchNorm1d(num_feat * 2, affine=True)
+        # 1664, 100
+        self.conv2_0 = nn.Conv1d(num_feat * 2, num_feat * 4, 3, 1, 1, bias=False)
+        self.bn2_0 = nn.BatchNorm1d(num_feat * 4, affine=True)
+        self.conv2_1 = nn.Conv1d(num_feat * 4, num_feat * 4, 3, 2, 1, bias=False)
+        self.bn2_1 = nn.BatchNorm1d(num_feat * 4, affine=True)
+
+        self.conv3_0 = nn.Conv1d(num_feat * 4, num_feat * 8, 3, 1, 1, bias=False)
+        self.bn3_0 = nn.BatchNorm1d(num_feat * 8, affine=True)
+        self.conv3_1 = nn.Conv1d(num_feat * 8, num_feat * 8, 3, 2, 1, bias=False)
+        self.bn3_1 = nn.BatchNorm1d(num_feat * 8, affine=True)
+
+        self.conv4_0 = nn.Conv1d(num_feat * 8, num_feat * 10, 3, 1, 1, bias=False)
+        self.bn4_0 = nn.BatchNorm1d(num_feat * 10, affine=True)
+        self.conv4_1 = nn.Conv1d(num_feat * 10, num_feat * 10, 3, 2, 1, bias=False)
+        self.bn4_1 = nn.BatchNorm1d(num_feat * 10, affine=True)
+
+        self.linear1 = nn.Linear(10240, 512)  # Adjusted input dimension  16384  [10240, 100]
+        self.linear2 = nn.Linear(512, 100)
+        self.linear3 = nn.Linear(100, 1)
+
+            # activation function
+        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
+
+
+    # def forward(self, x):
+    #     assert x.size(2) == self.input_size, (f'Input size must be identical to input_size, but received {x.size()}.')
+    #
+    #     feat = self.lrelu(self.conv0_0(x))
+    #     feat = self.lrelu(self.bn0_1(self.conv0_1(feat)))
+    #     feat = self.dropout(feat)
+    #
+    #     feat = self.lrelu(self.bn1_0(self.conv1_0(feat)))
+    #     feat = self.dropout(feat)
+    #     feat = self.lrelu(self.bn1_1(self.conv1_1(feat)))
+    #     feat = self.dropout(feat)
+    #
+    #     # spatial size: (4, 4)
+    #     feat = feat.view(feat.size(0), -1)
+    #     feat = self.lrelu(self.linear1(feat))
+    #     feat = self.dropout(feat)
+    #     out = self.linear2(feat)
+    #     return out
+    def forward(self, x):
+        # assert x.size(2) == self.input_size, (f'Input size must be identical to input_size, but received {x.size()}.')
+
+        feat = self.lrelu(self.conv0_0(x))
+        # print("f1: ", feat.shape)
+        feat = self.lrelu(self.bn0_1(self.conv0_1(feat)))
+        # print("f2: ", feat.shape)
+        # feat = nn.AlphaDropout(0.5)(feat)
+        feat = self.lrelu(self.bn1_0(self.conv1_0(feat)))
+        # print("f3: ", feat.shape)
+        # feat = nn.AlphaDropout(0.5)(feat)
+        feat = self.lrelu(self.bn1_1(self.conv1_1(feat)))
+        # print("f4: ", feat.shape)
+        # feat = nn.AlphaDropout(0.5)(feat)
+        # spatial size: (4, 4)
+        feat = self.lrelu(self.bn2_0(self.conv2_0(feat)))
+        # print("f5: ", feat.shape)
+        # print("f3: ", feat.shape)
+        # feat = nn.AlphaDropout(0.5)(feat)
+        feat = self.lrelu(self.bn2_1(self.conv2_1(feat)))
+        # print("f6: ", feat.shape)
+        # print("f4: ", feat.shape)
+        # feat = nn.AlphaDropout(0.5)(feat)
+        feat = self.lrelu(self.bn3_0(self.conv3_0(feat)))
+        # print("f5: ", feat.shape)
+        # print("f3: ", feat.shape)
+        # feat = nn.AlphaDropout(0.5)(feat)
+        feat = self.lrelu(self.bn3_1(self.conv3_1(feat)))
+        # print("f6: ", feat.shape)
+        # print("f4: ", feat.shape)
+        # feat = nn.AlphaDropout(0.5)(feat)
+
+        feat = self.lrelu(self.bn4_0(self.conv4_0(feat)))
+        # print("f3: ", feat.shape)
+        # feat = nn.AlphaDropout(0.5)(feat)
+        feat = self.lrelu(self.bn4_1(self.conv4_1(feat)))
+        # print("f4: ", feat.shape)
+        # feat = nn.AlphaDropout(0.5)(feat)
+
+        feat = feat.view(feat.size(0), -1)
+        feat = self.lrelu(self.linear1(feat))    # lrelu
+        # feat = self.dropout(feat)
+        feat = self.lrelu(self.linear2(feat))
+        # feat = self.dropout(feat)
+        out = self.linear3(feat)
+        out = F.sigmoid(out)
+        return out
+
+# def weights_init(m):
+#     classname = m.__class__.__name__
+#     if classname.find('Conv') != -1:
+#         m.weight.data.normal_(0.0, 0.02)
+#     elif classname.find('BatchNorm') != -1:
+#         m.weight.data.normal_(1.0, 0.02)
+#         m.bias.data.fill_(0)
+def weights_init(m):
+    if isinstance(m, (nn.Conv1d, nn.Linear)):
+        nn.init.kaiming_normal_(m.weight, nonlinearity='linear')
+        if m.bias is not None:
+            m.bias.data.fill_(0)
+    elif isinstance(m, nn.BatchNorm1d):
+        m.weight.data.fill_(1)
+        m.bias.data.fill_(0)
+
+
+def compute_gradient_penalty(D, real_samples, fake_samples):
+    """Calculates the gradient penalty loss for WGAN GP"""
+    alpha = torch.Tensor(np.random.random((real_samples.size(0), 1, 1))).to(real_samples.device)
+    interpolates = (alpha * real_samples + ((1 - alpha) * fake_samples)).requires_grad_(True)
+    d_interpolates = D(interpolates)
+    fake = torch.ones(d_interpolates.size()).to(real_samples.device)
+
+    gradients = autograd.grad(
+        outputs=d_interpolates,
+        inputs=interpolates,
+        grad_outputs=fake,
+        create_graph=True,
+        retain_graph=True,
+        only_inputs=True,
+    )[0]
+    gradients = gradients.view(gradients.size(0), -1)
+    gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+    return gradient_penalty

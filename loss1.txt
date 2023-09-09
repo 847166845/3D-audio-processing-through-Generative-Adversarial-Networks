@@ -1,0 +1,32 @@
+Randomly selected train batch: 37325-38325 Learning, Rate = 0.000568, Weight Decay = 0.004162 
+Randomly selected num_epochs 5.0 
+Mean LSD Error: 65.605Length of loc_errors: 40
+Mean ACC Error: -2.114
+Mean RMS Error: 43.673
+Mean QUERR Error: 30.568
+Randomly selected train batch: 5069-6069 Learning, Rate = 0.009841, Weight Decay = 0.009155 
+Randomly selected num_epochs 5.0 
+Mean LSD Error: 66.544Length of loc_errors: 40
+Mean ACC Error: -3.564
+Mean RMS Error: 44.356
+Mean QUERR Error: 37.419
+Randomly selected train batch: 39805-40805 Learning, Rate = 0.002590, Weight Decay = 0.002708 
+Randomly selected num_epochs 5.0 
+Mean LSD Error: 65.663Length of loc_errors: 40
+Mean ACC Error: -2.006
+Mean RMS Error: 45.369
+Mean QUERR Error: 33.539
+Randomly selected train batch: 34846-35846 Learning, Rate = 0.004821, Weight Decay = 0.004856 
+Randomly selected num_epochs 5.0 
+Mean LSD Error: 65.530Length of loc_errors: 40
+Mean ACC Error: -2.398
+Mean RMS Error: 44.936
+Mean QUERR Error: 35.377
+Randomly selected train batch: 13613-14613 Learning, Rate = 0.001448, Weight Decay = 0.001121 
+Randomly selected num_epochs 50.0 
+Mean LSD Error: 65.601Length of loc_errors: 40
+Mean ACC Error: -1.906
+Mean RMS Error: 41.327
+Mean QUERR Error: 32.237
+Randomly selected train batch: 13114-14114 Learning, Rate = 0.009571, Weight Decay = 0.009899 
+Randomly selected num_epochs 5.0 

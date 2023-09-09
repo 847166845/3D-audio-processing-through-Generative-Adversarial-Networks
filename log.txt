@@ -1,0 +1,186 @@
+epoch: 1
+num coords: 864
+my num lr coords: 432
+num coords: 864
+my num lr coords: 432
+num coords: 864
+my num lr coords: 432
+num coords: 864
+my num lr coords: 432
+num coords: 864
+my num lr coords: 432
+num coords: 864
+my num lr coords: 432
+num coords: 864
+my num lr coords: 432
+num coords: 864
+my num lr coords: 432
+num coords: 864
+my num lr coords: 432
+num coords: 864
+my num lr coords: 432
+time for one file: 2050.834456920624
+num coords: 864
+my num lr coords: 432
+time for one file: 2283.2827887535095
+num coords: 864
+my num lr coords: 432
+time for one file: 2453.8327493667603
+num coords: 864
+my num lr coords: 432
+time for one file: 2031.4339168071747
+num coords: 864
+my num lr coords: 432
+time for one file: 5103.572610378265
+num coords: 864
+my num lr coords: 432
+num coords: 864
+my num lr coords: 432
+time for one file: 5139.735072135925
+num coords: 864
+my num lr coords: 432
+time for one file: 2028.0135824680328
+num coords: 864
+my num lr coords: 432
+time for one file: 2033.088171005249
+num coords: 864
+my num lr coords: 432
+time for one file: 2039.1789038181305
+num coords: 864
+my num lr coords: 432
+time for one file: 2150.350387096405
+num coords: 864
+my num lr coords: 432
+time for one file: 2238.5685682296753
+num coords: 864
+my num lr coords: 432
+time for one file: 2112.2216198444366
+num coords: 864
+num coords: 864
+num coords: 864
+num coords: 864
+num coords: 864
+num coords: 864
+num files: 11, triangle
+num files: 22, triangle
+num files: 33, triangle
+num files: 44, triangle
+num files: 55, triangle
+num files: 66, triangle
+num files: 77, triangle
+num files: 88, triangle
+num files: 99, triangle
+num files: 1010, triangle
+num files: 1111, triangle
+num files: 1212, triangle
+num files: 1313, triangle
+num files: 1414, triangle
+num files: 1515, triangle
+num files: 1616, triangle
+num files: 1717, triangle
+num files: 1818, triangle
+num files: 1919, triangle
+num files: 2020, triangle
+num files: 2121, triangle
+num files: 2222, triangle
+num files: 2323, triangle
+num files: 2424, triangle
+num files: 2525, triangle
+num files: 2626, triangle
+num files: 2727, triangle
+num files: 2828, triangle
+num files: 2929, triangle
+num files: 3030, triangle
+num files: 3131, triangle
+num files: 3232, triangle
+num files: 3333, triangle
+num files: 3434, triangle
+num files: 3535, triangle
+num files: 3636, triangle
+num files: 3737, triangle
+num files: 3838, triangle
+num files: 3939, triangle
+num files: 4040, triangle
+num coords: 864
+num files: 11, triangle
+num files: 22, triangle
+num files: 33, triangle
+num files: 44, triangle
+num files: 55, triangle
+num files: 66, triangle
+num files: 77, triangle
+num files: 88, triangle
+num files: 99, triangle
+num files: 1010, triangle
+num files: 1111, triangle
+num files: 1212, triangle
+num files: 1313, triangle
+num files: 1414, triangle
+num files: 1515, triangle
+num files: 1616, triangle
+num files: 1717, triangle
+num files: 1818, triangle
+num files: 1919, triangle
+num files: 2020, triangle
+num files: 2121, triangle
+num files: 2222, triangle
+num files: 2323, triangle
+num files: 2424, triangle
+num files: 2525, triangle
+num files: 2626, triangle
+num files: 2727, triangle
+num files: 2828, triangle
+num files: 2929, triangle
+num files: 3030, triangle
+num files: 3131, triangle
+num files: 3232, triangle
+num files: 3333, triangle
+num files: 3434, triangle
+num files: 3535, triangle
+num files: 3636, triangle
+num files: 3737, triangle
+num files: 3838, triangle
+num files: 3939, triangle
+num files: 4040, triangle
+num coords: 864
+num files: 1num coords: 864
+num files: 11, triangle
+num files: 22, triangle
+num files: 33, triangle
+num files: 44, triangle
+num files: 55, triangle
+num files: 66, triangle
+num files: 77, triangle
+num files: 88, triangle
+num files: 99, triangle
+num files: 1010, triangle
+num files: 1111, triangle
+num files: 1212, triangle
+num files: 1313, triangle
+num files: 1414, triangle
+num files: 1515, triangle
+num files: 1616, triangle
+num files: 1717, triangle
+num files: 1818, triangle
+num files: 1919, triangle
+num files: 2020, triangle
+num files: 2121, triangle
+num files: 2222, triangle
+num files: 2323, triangle
+num files: 2424, triangle
+num files: 2525, triangle
+num files: 2626, triangle
+num files: 2727, triangle
+num files: 2828, triangle
+num files: 2929, triangle
+num files: 3030, triangle
+num files: 3131, triangle
+num files: 3232, triangle
+num files: 3333, triangle
+num files: 3434, triangle
+num files: 3535, triangle
+num files: 3636, triangle
+num files: 3737, triangle
+num files: 3838, triangle
+num files: 3939, triangle
+num files: 4040, triangle
